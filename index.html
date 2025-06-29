@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Xadrez Multiplayer</title>
+    
+    <!-- Estilo do Chessboard.js -->
+    <link rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css">
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Fontes -->
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+    
+    <style>
+        body {
+            font-family: 'Roboto', sans-serif;
+            background-color: #1a202c; /* Cor de fundo escura */
+            color: #e2e8f0;
+        }
+        .board-container {
+            width: 90vw;
+            max-width: 600px;
+            margin: auto;
+        }
+        .captured-pieces-box {
+            min-height: 40px;
+        }
+        .piece-image {
+            width: 30px;
+            height: 30px;
+        }
+        .highlight-check {
+            box-shadow: 0 0 15px 5px rgba(255, 100, 100, 0.7);
+        }
+    </style>
+</head>
+<body class="flex items-center justify-center min-h-screen p-4">
+
+    <div id="app" class="w-full max-w-5xl mx-auto">
+        
+        <!-- Tela Inicial -->
+        <div id="home-screen" class="text-center">
+            <h1 class="text-4xl md:text-5xl font-bold mb-2 text-white">Xadrez Multiplayer</h1>
+            <p class="text-lg mb-8 text-gray-400">Desafie os seus amigos para uma partida.</p>
+            <div class="flex flex-col md:flex-row items-center justify-center gap-4">
+                <button id="create-game-btn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg w-full md:w-auto">
+                    Criar Novo Jogo
+                </button>
+                <button id="join-game-prompt-btn" class="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-lg w-full md:w-auto">
+                    Entrar num Jogo
+                </button>
+            </div>
+        </div>
+
+        <!-- Tela de Entrada em Jogo -->
+        <div id="join-game-screen" class="hidden text-center">
+            <h2 class="text-3xl font-bold mb-4 text-white">Entrar num Jogo</h2>
+            <input type="text" id="game-id-input" placeholder="Digite o ID do Jogo..." class="bg-gray-800 border-2 border-gray-700 rounded-lg p-3 text-center w-full max-w-sm mx-auto mb-4 focus:border-green-500 focus:outline-none uppercase">
+            <button id="confirm-join-btn" class="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-lg">
+                Entrar na Partida
+            </button>
+            <button id="back-to-home-btn" class="mt-4 text-gray-400 hover:text-white">Voltar</button>
+        </div>
+
+        <!-- Tela do Jogo -->
+        <div id="game-screen" class="hidden w-full">
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <!-- Tabuleiro de Xadrez (Centro) -->
+                <div class="lg:col-span-2 flex flex-col items-center">
+                    <div id="board" class="board-container shadow-2xl"></div>
+                </div>
+
+                <!-- Painel de Informações (Direita) -->
+                <div class="bg-gray-800 p-4 rounded-lg shadow-lg">
+                    <h2 class="text-2xl font-bold mb-4 border-b border-gray-700 pb-2">Estado do Jogo</h2>
+                    <div id="status" class="text-lg mb-4 p-3 rounded-lg bg-gray-900 text-center font-semibold">Aguardando...</div>
+                    
+                    <div class="mb-4">
+                        <p class="text-sm text-gray-400">ID do Jogo (partilhe com o seu amigo):</p>
+                        <p id="game-id-display" class="font-mono text-blue-400 text-xl cursor-pointer" title="Clique para copiar"></p>
+                    </div>
+
+                    <div class="mb-4">
+                         <h3 class="font-semibold text-gray-300 mb-2">Peças Capturadas (Pretas):</h3>
+                         <div id="captured-by-black" class="captured-pieces-box bg-gray-900 p-2 rounded flex flex-wrap gap-1"></div>
+                    </div>
+                    
+                    <div>
+                         <h3 class="font-semibold text-gray-300 mb-2">Peças Capturadas (Brancas):</h3>
+                         <div id="captured-by-white" class="captured-pieces-box bg-gray-900 p-2 rounded flex flex-wrap gap-1"></div>
+                    </div>
+                    
+                    <button id="leave-game-btn" class="mt-6 bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg w-full">
+                        Sair da Partida
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Scripts -->
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/1.0.0-beta.6/chess.min.js"></script>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.9.1/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.9.1/firebase-auth.js";
+        import { getFirestore, doc, getDoc, setDoc, onSnapshot, updateDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/11.9.1/firebase-firestore.js";
+
+        // SUAS NOVAS CREDENCIAIS PARA O JOGO DE XADREZ
+        const firebaseConfig = {
+            apiKey: "AIzaSyD8VSLDhjNPM3f7zDfmyMEkUfiVtN7tKtg",
+            authDomain: "jogo-xadrez-2play.firebaseapp.com",
+            projectId: "jogo-xadrez-2play",
+            storageBucket: "jogo-xadrez-2play.appspot.com",
+            messagingSenderId: "975558562302",
+            appId: "1:975558562302:web:66d6957f13766a7716b0af"
+        };
+        
+        const appId = 'multiplayer-chess-v2'; 
+        
+        let app, auth, db;
+        let currentUser = null;
+        let currentGameId = null;
+        let unsubscribeGame = null;
+        let playerColor = null;
+
+        let board = null;
+        const game = new Chess();
+
+        const dom = {
+            screens: { home: document.getElementById('home-screen'), join: document.getElementById('join-game-screen'), game: document.getElementById('game-screen') },
+            status: document.getElementById('status'),
+            gameIdDisplay: document.getElementById('game-id-display'),
+            capturedByWhite: document.getElementById('captured-by-white'),
+            capturedByBlack: document.getElementById('captured-by-black'),
+            boardContainer: document.getElementById('board')
+        };
+
+        const showScreen = (screenName) => {
+            Object.values(dom.screens).forEach(screen => screen.classList.add('hidden'));
+            dom.screens[screenName]?.classList.remove('hidden');
+        };
+
+        const updateStatus = () => {
+            let statusText = '';
+            const moveColor = game.turn() === 'w' ? 'Brancas' : 'Pretas';
+            
+            dom.boardContainer.classList.remove('highlight-check');
+
+            if (game.isCheckmate()) {
+                statusText = `Xeque-mate! As ${moveColor === 'Brancas' ? 'Pretas' : 'Brancas'} vencem.`;
+            } else if (game.isDraw()) {
+                statusText = 'Empate!';
+            } else {
+                statusText = `Vez das ${moveColor}.`;
+                if (game.inCheck()) {
+                    statusText += ' (Xeque!)';
+                    dom.boardContainer.classList.add('highlight-check');
+                }
+            }
+            dom.status.textContent = statusText;
+        };
+
+        const updateCapturedPieces = () => {
+            const captured = { w: [], b: [] };
+            const history = game.history({ verbose: true });
+            history.forEach(move => {
+                if (move.captured) {
+                    const pieceColor = move.color === 'w' ? 'b' : 'w';
+                    captured[pieceColor].push(move.captured.toUpperCase());
+                }
+            });
+
+            const pieceHtml = (pieces, color) => pieces.map(p => `<img src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/img/chesspieces/wikipedia/${color}${p}.png" class="piece-image">`).join('');
+
+            dom.capturedByWhite.innerHTML = pieceHtml(captured.w, 'w');
+            dom.capturedByBlack.innerHTML = pieceHtml(captured.b, 'b');
+        };
+
+        function onDragStart(source, piece) {
+            if (game.isGameOver() || game.turn() !== playerColor) {
+                return false;
+            }
+            if ((game.turn() === 'w' && piece.search(/^b/) !== -1) || (game.turn() === 'b' && piece.search(/^w/) !== -1)) {
+                return false;
+            }
+        }
+
+        async function onDrop(source, target) {
+            try {
+                const move = game.move({
+                    from: source,
+                    to: target,
+                    promotion: 'q'
+                });
+
+                if (move === null) return 'snapback';
+                
+                await updateFirestoreGame(game.fen());
+            } catch (e) {
+                console.error("Move error:", e);
+                return 'snapback';
+            }
+        }
+        
+        function onSnapEnd() {
+            board.position(game.fen());
+        }
+
+        const initializeBoard = () => {
+            if (board) return;
+            const config = {
+                draggable: true,
+                position: 'start',
+                onDragStart: onDragStart,
+                onDrop: onDrop,
+                onSnapEnd: onSnapEnd,
+                pieceTheme: 'https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/img/chesspieces/wikipedia/{piece}.png'
+            };
+            board = Chessboard('board', config);
+            $(window).resize(board.resize);
+        };
+
+        const updateFirestoreGame = async (fen) => {
+            if (!currentGameId) return;
+            const gameRef = doc(db, `artifacts/${appId}/public/data/chess`, currentGameId);
+            await updateDoc(gameRef, { fen, turn: game.turn() });
+        };
+
+        const createNewGame = async () => {
+            if (!currentUser) return;
+            const gameId = Math.random().toString(36).substring(2, 8).toUpperCase();
+            
+            const gameData = {
+                fen: 'start',
+                status: 'waiting',
+                turn: 'w',
+                players: { white: currentUser.uid },
+                hostId: currentUser.uid,
+                createdAt: new Date(),
+            };
+            
+            const gameRef = doc(db, `artifacts/${appId}/public/data/chess`, gameId);
+            await setDoc(gameRef, gameData);
+            
+            joinGame(gameId);
+        };
+
+        const joinGame = (gameId) => {
+            if (!currentUser) return;
+            currentGameId = gameId.trim().toUpperCase();
+            
+            const gameRef = doc(db, `artifacts/${appId}/public/data/chess`, currentGameId);
+            
+            if (unsubscribeGame) unsubscribeGame();
+            
+            unsubscribeGame = onSnapshot(gameRef, async (docSnap) => {
+                if (!docSnap.exists()) {
+                    alert("Jogo não encontrado!");
+                    leaveGame();
+                    return;
+                }
+
+                const gameData = docSnap.data();
+                
+                initializeBoard();
+
+                if (!playerColor) {
+                    if (!gameData.players.white) {
+                        playerColor = 'w';
+                        await updateDoc(gameRef, { 'players.white': currentUser.uid });
+                    } else if (!gameData.players.black && gameData.players.white !== currentUser.uid) {
+                        playerColor = 'b';
+                        await updateDoc(gameRef, { 'players.black': currentUser.uid, status: 'inprogress' });
+                    } else if (gameData.players.white === currentUser.uid) { 
+                        playerColor = 'w';
+                    } else if (gameData.players.black === currentUser.uid) {
+                        playerColor = 'b';
+                    } else {
+                        alert("A sala está cheia!");
+                        leaveGame();
+                        return;
+                    }
+                }
+                
+                board.orientation(playerColor === 'w' ? 'white' : 'black');
+                game.load(gameData.fen);
+                board.position(gameData.fen);
+                updateStatus();
+                updateCapturedPieces();
+                
+                showScreen('game');
+                dom.gameIdDisplay.textContent = currentGameId;
+            });
+        };
+
+        const leaveGame = () => {
+            if (unsubscribeGame) unsubscribeGame();
+            currentGameId = null;
+            playerColor = null;
+            game.reset();
+            if (board) board.destroy();
+            board = null;
+            showScreen('home');
+        };
+
+        document.addEventListener("DOMContentLoaded", () => {
+            try {
+                app = initializeApp(firebaseConfig);
+                auth = getAuth(app);
+                db = getFirestore(app);
+
+                onAuthStateChanged(auth, (user) => {
+                    if (user) {
+                        currentUser = user;
+                    } else {
+                        signInAnonymously(auth).catch(console.error);
+                    }
+                });
+            } catch (error) {
+                console.error("Erro de inicialização do Firebase:", error);
+                alert("Falha ao conectar à base de dados. Verifique a sua configuração do Firebase no código.");
+                return;
+            }
+
+            document.getElementById('create-game-btn').onclick = createNewGame;
+            document.getElementById('join-game-prompt-btn').onclick = () => showScreen('join');
+            document.getElementById('back-to-home-btn').onclick = () => showScreen('home');
+            document.getElementById('leave-game-btn').onclick = leaveGame;
+            
+            document.getElementById('confirm-join-btn').onclick = () => {
+                const gameId = document.getElementById('game-id-input').value;
+                if(gameId) joinGame(gameId);
+            };
+
+            dom.gameIdDisplay.onclick = () => {
+                if(!currentGameId) return;
+                navigator.clipboard.writeText(currentGameId)
+                    .then(() => alert('ID do Jogo copiado!'))
+                    .catch(() => alert('Falha ao copiar ID.'));
+            };
+        });
+
+    </script>
+</body>
+</html>
+
