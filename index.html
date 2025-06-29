@@ -35,6 +35,10 @@
         .highlight-check {
             box-shadow: 0 0 15px 5px rgba(255, 100, 100, 0.7);
         }
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
     </style>
 </head>
 <body class="flex items-center justify-center min-h-screen p-4">
@@ -45,11 +49,15 @@
         <div id="home-screen" class="text-center">
             <h1 class="text-4xl md:text-5xl font-bold mb-2 text-white">Xadrez Multiplayer</h1>
             <p class="text-lg mb-8 text-gray-400">Desafie os seus amigos para uma partida.</p>
+            <p id="init-status" class="text-amber-400 font-mono my-4 h-6"></p>
             <div class="flex flex-col md:flex-row items-center justify-center gap-4">
-                <button id="create-game-btn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg w-full md:w-auto">
-                    Criar Novo Jogo
+                <button id="play-computer-btn" class="bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 px-6 rounded-lg w-full md:w-auto">
+                    Jogar contra o Computador
                 </button>
-                <button id="join-game-prompt-btn" class="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-lg w-full md:w-auto">
+                <button id="create-game-btn" disabled class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg w-full md:w-auto">
+                    Criar Jogo Multiplayer
+                </button>
+                <button id="join-game-prompt-btn" disabled class="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-lg w-full md:w-auto">
                     Entrar num Jogo
                 </button>
             </div>
@@ -78,7 +86,7 @@
                     <h2 class="text-2xl font-bold mb-4 border-b border-gray-700 pb-2">Estado do Jogo</h2>
                     <div id="status" class="text-lg mb-4 p-3 rounded-lg bg-gray-900 text-center font-semibold">Aguardando...</div>
                     
-                    <div class="mb-4">
+                    <div id="game-id-container" class="mb-4">
                         <p class="text-sm text-gray-400">ID do Jogo (partilhe com o seu amigo):</p>
                         <p id="game-id-display" class="font-mono text-blue-400 text-xl cursor-pointer" title="Clique para copiar"></p>
                     </div>
@@ -94,24 +102,23 @@
                     </div>
                     
                     <button id="leave-game-btn" class="mt-6 bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg w-full">
-                        Sair da Partida
+                        Voltar ao Menu
                     </button>
                 </div>
             </div>
         </div>
     </div>
     
-    <!-- Scripts -->
-    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
     <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/1.0.0-beta.6/chess.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
 
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.9.1/firebase-app.js";
-        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.9.1/firebase-auth.js";
-        import { getFirestore, doc, getDoc, setDoc, onSnapshot, updateDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/11.9.1/firebase-firestore.js";
+    <!-- Usando versões estáveis e compatíveis do Firebase -->
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore-compat.js"></script>
 
-        // SUAS NOVAS CREDENCIAIS PARA O JOGO DE XADREZ
+    <script>
         const firebaseConfig = {
             apiKey: "AIzaSyD8VSLDhjNPM3f7zDfmyMEkUfiVtN7tKtg",
             authDomain: "jogo-xadrez-2play.firebaseapp.com",
@@ -128,82 +135,95 @@
         let currentGameId = null;
         let unsubscribeGame = null;
         let playerColor = null;
+        let gameMode = null; 
 
         let board = null;
         const game = new Chess();
+        const dom = {};
 
-        const dom = {
-            screens: { home: document.getElementById('home-screen'), join: document.getElementById('join-game-screen'), game: document.getElementById('game-screen') },
-            status: document.getElementById('status'),
-            gameIdDisplay: document.getElementById('game-id-display'),
-            capturedByWhite: document.getElementById('captured-by-white'),
-            capturedByBlack: document.getElementById('captured-by-black'),
-            boardContainer: document.getElementById('board')
+        // --- NOVO CONJUNTO DE PEÇAS SVG ---
+        const pieceSVGs = {
+            wP: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><path d="M16 4c-2 0-3 1-3 3s1 3 3 3 3-1 3-3-1-3-3-3zm-1 7h2l-1 12h-1zM9 25h14l-1 2H10z" fill="#fff" stroke="#000" stroke-width="1.5"/></svg>`,
+            wR: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><path d="M7 6h18v4h-18zM9 10h14v15H9zM7 25h18v2H7z" fill="#fff" stroke="#000" stroke-width="1.5"/></svg>`,
+            wN: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><path d="M9 7c4-1 8 2 10 6l-1.5 8c-3 2-6 2-8 0L9 12c-2-3-1-5 0-5zm1 10c2 2 5 2 7 0" fill="#fff" stroke="#000" stroke-width="1.5"/></svg>`,
+            wB: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><path d="M16 4L9 18h14zM16 18v9m-4 0h8" fill="none" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/><circle cx="16" cy="7" r="2" fill="#fff" stroke="#000" stroke-width="1.5"/></svg>`,
+            wQ: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><path d="M8 8l8-4 8 4-3 12H11zM16 19v8m-5 0h10" fill="none" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="8" r="2" fill="#fff" stroke="#000" stroke-width="1.5"/><circle cx="16" cy="4" r="2" fill="#fff" stroke="#000" stroke-width="1.5"/><circle cx="24" cy="8" r="2" fill="#fff" stroke="#000" stroke-width="1.5"/></svg>`,
+            wK: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><path d="M13 5h6v4h-6zM16 9v18m-5 0h10" fill="none" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/></svg>`,
+            bP: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><path d="M16 4c-2 0-3 1-3 3s1 3 3 3 3-1 3-3-1-3-3-3zm-1 7h2l-1 12h-1zM9 25h14l-1 2H10z" fill="#333" stroke="#fff" stroke-width="1.5"/></svg>`,
+            bR: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><path d="M7 6h18v4h-18zM9 10h14v15H9zM7 25h18v2H7z" fill="#333" stroke="#fff" stroke-width="1.5"/></svg>`,
+            bN: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><path d="M9 7c4-1 8 2 10 6l-1.5 8c-3 2-6 2-8 0L9 12c-2-3-1-5 0-5zm1 10c2 2 5 2 7 0" fill="#333" stroke="#fff" stroke-width="1.5"/></svg>`,
+            bB: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><path d="M16 4L9 18h14zM16 18v9m-4 0h8" fill="none" stroke="#333" stroke-width="1.5" stroke-linecap="round"/><circle cx="16" cy="7" r="2" fill="#333" stroke="#fff" stroke-width="1.5"/></svg>`,
+            bQ: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><path d="M8 8l8-4 8 4-3 12H11zM16 19v8m-5 0h10" fill="none" stroke="#333" stroke-width="1.5" stroke-linecap="round"/><circle cx="8" cy="8" r="2" fill="#333" stroke="#fff" stroke-width="1.5"/><circle cx="16" cy="4" r="2" fill="#333" stroke="#fff" stroke-width="1.5"/><circle cx="24" cy="8" r="2" fill="#333" stroke="#fff" stroke-width="1.5"/></svg>`,
+            bK: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><path d="M13 5h6v4h-6zM16 9v18m-5 0h10" fill="none" stroke="#333" stroke-width="1.5" stroke-linecap="round"/></svg>`,
         };
 
-        const showScreen = (screenName) => {
+        function getPieceTheme(piece) {
+            const svg = pieceSVGs[piece];
+            // Codifica o SVG para ser usado num URL de dados
+            return 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg);
+        }
+
+        function showScreen(screenName) {
             Object.values(dom.screens).forEach(screen => screen.classList.add('hidden'));
             dom.screens[screenName]?.classList.remove('hidden');
-        };
+        }
 
-        const updateStatus = () => {
+        function updateStatus() {
             let statusText = '';
             const moveColor = game.turn() === 'w' ? 'Brancas' : 'Pretas';
             
-            dom.boardContainer.classList.remove('highlight-check');
+            $('#board .square-55d63').removeClass('highlight-check');
 
-            if (game.isCheckmate()) {
-                statusText = `Xeque-mate! As ${moveColor === 'Brancas' ? 'Pretas' : 'Brancas'} vencem.`;
-            } else if (game.isDraw()) {
-                statusText = 'Empate!';
+            if (game.game_over()) {
+                if(game.in_checkmate()){
+                    statusText = `Xeque-mate! As ${moveColor === 'w' ? 'Pretas' : 'Brancas'} vencem.`;
+                } else {
+                    statusText = 'Empate!';
+                }
             } else {
                 statusText = `Vez das ${moveColor}.`;
-                if (game.inCheck()) {
+                if (game.in_check()) {
                     statusText += ' (Xeque!)';
-                    dom.boardContainer.classList.add('highlight-check');
+                    const kingSquare = game.board().flat().find(p => p && p.type === 'k' && p.color === game.turn())?.square;
+                    if(kingSquare) $(`#board .square-${kingSquare}`).addClass('highlight-check');
                 }
             }
             dom.status.textContent = statusText;
-        };
+        }
 
-        const updateCapturedPieces = () => {
+        function updateCapturedPieces() {
             const captured = { w: [], b: [] };
             const history = game.history({ verbose: true });
             history.forEach(move => {
-                if (move.captured) {
+                if ('captured' in move) {
                     const pieceColor = move.color === 'w' ? 'b' : 'w';
                     captured[pieceColor].push(move.captured.toUpperCase());
                 }
             });
 
-            const pieceHtml = (pieces, color) => pieces.map(p => `<img src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/img/chesspieces/wikipedia/${color}${p}.png" class="piece-image">`).join('');
+            const pieceHtml = (pieces, color) => pieces.map(p => `<img src="${getPieceTheme(color + p)}" class="piece-image">`).join('');
 
             dom.capturedByWhite.innerHTML = pieceHtml(captured.w, 'w');
             dom.capturedByBlack.innerHTML = pieceHtml(captured.b, 'b');
-        };
+        }
 
         function onDragStart(source, piece) {
-            if (game.isGameOver() || game.turn() !== playerColor) {
-                return false;
-            }
-            if ((game.turn() === 'w' && piece.search(/^b/) !== -1) || (game.turn() === 'b' && piece.search(/^w/) !== -1)) {
-                return false;
-            }
+            return !game.game_over() && playerColor === game.turn() && piece.startsWith(playerColor);
         }
 
         async function onDrop(source, target) {
             try {
-                const move = game.move({
-                    from: source,
-                    to: target,
-                    promotion: 'q'
-                });
-
+                const move = game.move({ from: source, to: target, promotion: 'q' });
                 if (move === null) return 'snapback';
                 
-                await updateFirestoreGame(game.fen());
+                if (gameMode === 'multiplayer') {
+                    await updateFirestoreGame(game.fen());
+                } else {
+                    updateStatus();
+                    updateCapturedPieces();
+                    window.setTimeout(makeComputerMove, 250);
+                }
             } catch (e) {
-                console.error("Move error:", e);
                 return 'snapback';
             }
         }
@@ -212,28 +232,31 @@
             board.position(game.fen());
         }
 
-        const initializeBoard = () => {
-            if (board) return;
+        function initializeBoard() {
+            if (board) board.destroy();
             const config = {
                 draggable: true,
                 position: 'start',
-                onDragStart: onDragStart,
-                onDrop: onDrop,
-                onSnapEnd: onSnapEnd,
-                pieceTheme: 'https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/img/chesspieces/wikipedia/{piece}.png'
+                onDragStart,
+                onDrop,
+                onSnapEnd,
+                pieceTheme: getPieceTheme
             };
             board = Chessboard('board', config);
             $(window).resize(board.resize);
-        };
+        }
 
-        const updateFirestoreGame = async (fen) => {
+        async function updateFirestoreGame(fen) {
             if (!currentGameId) return;
-            const gameRef = doc(db, `artifacts/${appId}/public/data/chess`, currentGameId);
-            await updateDoc(gameRef, { fen, turn: game.turn() });
-        };
+            const gameRef = db.collection(`artifacts/${appId}/public/data/chess`).doc(currentGameId);
+            await gameRef.update({ fen, turn: game.turn() });
+        }
 
-        const createNewGame = async () => {
+        async function createNewGame() {
             if (!currentUser) return;
+            gameMode = 'multiplayer';
+            dom.gameIdContainer.style.display = 'block';
+
             const gameId = Math.random().toString(36).substring(2, 8).toUpperCase();
             
             const gameData = {
@@ -245,22 +268,24 @@
                 createdAt: new Date(),
             };
             
-            const gameRef = doc(db, `artifacts/${appId}/public/data/chess`, gameId);
-            await setDoc(gameRef, gameData);
-            
+            const gameRef = db.collection(`artifacts/${appId}/public/data/chess`).doc(gameId);
+            await gameRef.set(gameData);
             joinGame(gameId);
-        };
+        }
 
-        const joinGame = (gameId) => {
+        function joinGame(gameId) {
             if (!currentUser) return;
+            gameMode = 'multiplayer';
+            dom.gameIdContainer.style.display = 'block';
+            
             currentGameId = gameId.trim().toUpperCase();
             
-            const gameRef = doc(db, `artifacts/${appId}/public/data/chess`, currentGameId);
+            const gameRef = db.collection(`artifacts/${appId}/public/data/chess`).doc(currentGameId);
             
             if (unsubscribeGame) unsubscribeGame();
             
-            unsubscribeGame = onSnapshot(gameRef, async (docSnap) => {
-                if (!docSnap.exists()) {
+            unsubscribeGame = gameRef.onSnapshot(async (docSnap) => {
+                if (!docSnap.exists) {
                     alert("Jogo não encontrado!");
                     leaveGame();
                     return;
@@ -273,10 +298,10 @@
                 if (!playerColor) {
                     if (!gameData.players.white) {
                         playerColor = 'w';
-                        await updateDoc(gameRef, { 'players.white': currentUser.uid });
+                        await gameRef.update({ 'players.white': currentUser.uid });
                     } else if (!gameData.players.black && gameData.players.white !== currentUser.uid) {
                         playerColor = 'b';
-                        await updateDoc(gameRef, { 'players.black': currentUser.uid, status: 'inprogress' });
+                        await gameRef.update({ 'players.black': currentUser.uid, status: 'inprogress' });
                     } else if (gameData.players.white === currentUser.uid) { 
                         playerColor = 'w';
                     } else if (gameData.players.black === currentUser.uid) {
@@ -297,45 +322,97 @@
                 showScreen('game');
                 dom.gameIdDisplay.textContent = currentGameId;
             });
-        };
+        }
+        
+        function makeComputerMove() {
+            const possibleMoves = game.moves();
+            if (game.game_over() || possibleMoves.length === 0) return;
 
-        const leaveGame = () => {
+            const randomIndex = Math.floor(Math.random() * possibleMoves.length);
+            game.move(possibleMoves[randomIndex]);
+            
+            board.position(game.fen());
+            updateStatus();
+            updateCapturedPieces();
+        }
+        
+        function startSinglePlayerGame() {
+            gameMode = 'singleplayer';
+            playerColor = 'w';
+            game.reset();
+            
+            initializeBoard();
+            board.orientation('white');
+            updateStatus();
+            updateCapturedPieces();
+
+            dom.gameIdContainer.style.display = 'none';
+            showScreen('game');
+        }
+
+        function leaveGame() {
             if (unsubscribeGame) unsubscribeGame();
             currentGameId = null;
             playerColor = null;
+            gameMode = null;
             game.reset();
-            if (board) board.destroy();
-            board = null;
+            if (board) {
+                board.destroy();
+                board = null;
+            }
             showScreen('home');
-        };
+        }
 
         document.addEventListener("DOMContentLoaded", () => {
-            try {
-                app = initializeApp(firebaseConfig);
-                auth = getAuth(app);
-                db = getFirestore(app);
+            dom.screens = { home: document.getElementById('home-screen'), join: document.getElementById('join-game-screen'), game: document.getElementById('game-screen') };
+            dom.status = document.getElementById('status');
+            dom.gameIdDisplay = document.getElementById('game-id-display');
+            dom.gameIdContainer = document.getElementById('game-id-container');
+            dom.capturedByWhite = document.getElementById('captured-by-white');
+            dom.capturedByBlack = document.getElementById('captured-by-black');
+            dom.boardContainer = document.getElementById('board');
+            dom.initStatus = document.getElementById('init-status');
+            dom.createGameBtn = document.getElementById('create-game-btn');
+            dom.joinGamePromptBtn = document.getElementById('join-game-prompt-btn');
 
-                onAuthStateChanged(auth, (user) => {
+            const logStatus = (message, isError = false) => {
+                if (dom.initStatus) {
+                    dom.initStatus.textContent = message;
+                    dom.initStatus.style.color = isError ? '#ef4444' : '#f59e0b';
+                }
+            }
+
+            try {
+                logStatus('A inicializar a aplicação...');
+                app = firebase.initializeApp(firebaseConfig);
+                auth = firebase.auth();
+                db = firebase.firestore();
+                logStatus('A conectar ao servidor...');
+
+                auth.onAuthStateChanged((user) => {
                     if (user) {
                         currentUser = user;
+                        logStatus('Conectado! Pronto para jogar.');
+                        dom.createGameBtn.disabled = false;
+                        dom.joinGamePromptBtn.disabled = false;
                     } else {
-                        signInAnonymously(auth).catch(console.error);
+                        auth.signInAnonymously().catch(err => logStatus(`Erro de login: ${err.message}`, true));
                     }
                 });
             } catch (error) {
-                console.error("Erro de inicialização do Firebase:", error);
-                alert("Falha ao conectar à base de dados. Verifique a sua configuração do Firebase no código.");
+                logStatus(`ERRO CRÍTICO: ${error.message}`, true);
                 return;
             }
 
-            document.getElementById('create-game-btn').onclick = createNewGame;
-            document.getElementById('join-game-prompt-btn').onclick = () => showScreen('join');
+            document.getElementById('play-computer-btn').onclick = startSinglePlayerGame;
+            dom.createGameBtn.onclick = createNewGame;
+            dom.joinGamePromptBtn.onclick = () => showScreen('join');
             document.getElementById('back-to-home-btn').onclick = () => showScreen('home');
             document.getElementById('leave-game-btn').onclick = leaveGame;
             
             document.getElementById('confirm-join-btn').onclick = () => {
                 const gameId = document.getElementById('game-id-input').value;
-                if(gameId) joinGame(gameId);
+if(gameId) joinGame(gameId);
             };
 
             dom.gameIdDisplay.onclick = () => {
@@ -345,8 +422,6 @@
                     .catch(() => alert('Falha ao copiar ID.'));
             };
         });
-
     </script>
 </body>
 </html>
-
